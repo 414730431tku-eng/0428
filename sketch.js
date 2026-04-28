@@ -1,4 +1,6 @@
 // Hand Pose Detection with ml5.js
+// https://thecodingtrain.com/tracks/ml5js-beginners-guide/ml5/hand-pose
+
 let video;
 let handPose;
 let hands = [];
@@ -17,13 +19,16 @@ function mousePressed() {
 
 function setup() {
   createCanvas(640, 480);
+
   video = createCapture(VIDEO, { flipped: true });
+  video.size(640, 480);
   video.hide();
+
   handPose.detectStart(video, gotHands);
 }
 
 function draw() {
-  image(video, 0, 0);
+  image(video, 0, 0, width, height);
 
   if (hands.length > 0) {
     for (let hand of hands) {
