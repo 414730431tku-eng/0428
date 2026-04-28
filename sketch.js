@@ -1,16 +1,27 @@
+// Hand Pose Detection with ml5.js + 馬賽克黑白 + 泡泡 + 截圖
 let video;
-let pg; // createGraphics layer
+let handPose;
+let hands = [];
+let pg;
 let bubbles = [];
 const NUM_BUBBLES = 30;
 
+function preload() {
+  handPose = ml5.handPose({ flipped: true });
+}
+
+function gotHands(results) {
+  hands = results;
+}
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  
-  // 建立攝影機視訊
-  video = createCapture(VIDEO);
+
+  video = createCapture(VIDEO, { flipped: true });
   video.hide();
 
-  // 等 video metadata 載入後建立 Graphics 層和泡泡
+  handPose.detectStart(video, gotHands);
+
   video.elt.addEventListener('loadedmetadata', () => {
     pg = createGraphics(video.width, video.height);
     for (let i = 0; i < NUM_BUBBLES; i++) {
@@ -18,7 +29,7 @@ function setup() {
     }
   });
 
-  // 建立截圖按鈕
+  // 截圖按鈕
   let btn = createButton('📸 截圖儲存');
   btn.style('position', 'absolute');
   btn.style('bottom', '30px');
@@ -45,35 +56,54 @@ function draw() {
 
   if (video.width === 0 || !pg) return;
 
-  // ── 更新泡泡 ──
+  // 更新泡泡
   for (let b of bubbles) b.update();
 
-  // ── 繪製 createGraphics 覆蓋層（泡泡）──
+  // 繪製泡泡到 graphics 層
   pg.clear();
   for (let b of bubbles) b.draw(pg);
 
-  // ── 繪製視訊（修正左右顛倒）──
   push();
-  translate(vx + vw, vy);
-  scale(-1, 1);
+  translate(vx, vy);
 
   // 馬賽克黑白效果
   drawMosaic(0, 0, vw, vh);
 
-  // 疊上 Graphics 層（泡泡）
+  // 疊上泡泡層
   image(pg, 0, 0, vw, vh);
+
+  // 縮放比例（video 座標 → 顯示座標）
+  let scaleX = vw / video.width;
+  let scaleY = vh / video.height;
+
+  // 繪製手部關鍵點
+  if (hands.length > 0) {
+    for (let hand of hands) {
+      if (hand.confidence > 0.1) {
+        for (let i = 0; i < hand.keypoints.length; i++) {
+          let kp = hand.keypoints[i];
+          if (hand.handedness === 'Left') {
+            fill(255, 0, 255);
+          } else {
+            fill(255, 255, 0);
+          }
+          noStroke();
+          circle(kp.x * scaleX, kp.y * scaleY, 16);
+        }
+      }
+    }
+  }
 
   pop();
 }
 
-// ── 馬賽克黑白效果 ──
+// ── 馬賽克黑白 ──
 function drawMosaic(x, y, vw, vh) {
   let cols = 20;
   let rows = 20;
   let cellW = vw / cols;
   let cellH = vh / rows;
 
-  // 用臨時 Graphics 取得 pixel 資料
   let tmp = createGraphics(vw, vh);
   tmp.image(video, 0, 0, vw, vh);
   tmp.loadPixels();
@@ -81,7 +111,6 @@ function drawMosaic(x, y, vw, vh) {
   noStroke();
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      // 取單元格中心點 pixel
       let px = floor(col * cellW + cellW / 2);
       let py = floor(row * cellH + cellH / 2);
       let idx = (py * floor(vw) + px) * 4;
@@ -89,7 +118,6 @@ function drawMosaic(x, y, vw, vh) {
       let g = tmp.pixels[idx + 1];
       let b = tmp.pixels[idx + 2];
       let gray = (r + g + b) / 3;
-
       fill(gray);
       rect(x + col * cellW, y + row * cellH, cellW + 1, cellH + 1);
     }
@@ -97,24 +125,16 @@ function drawMosaic(x, y, vw, vh) {
   tmp.remove();
 }
 
-// ── 截圖功能 ──
+// ── 截圖 ──
 function captureImage() {
   let vw = width * 0.6;
   let vh = height * 0.6;
-  let vx = (width - vw) / 2;
-  let vy = (height - vh) / 2;
 
-  // 擷取視訊畫面區域存為 jpg
   let cap = createGraphics(vw, vh);
-
-  // 鏡像繪製馬賽克
-  cap.push();
-  cap.translate(vw, 0);
-  cap.scale(-1, 1);
-
   let cols = 20, rows = 20;
   let cellW = vw / cols;
   let cellH = vh / rows;
+
   let tmp = createGraphics(vw, vh);
   tmp.image(video, 0, 0, vw, vh);
   tmp.loadPixels();
@@ -135,9 +155,22 @@ function captureImage() {
   }
   tmp.remove();
 
-  // 疊上泡泡層
   cap.image(pg, 0, 0, vw, vh);
-  cap.pop();
+
+  // 手部關鍵點也畫進截圖
+  let scaleX = vw / video.width;
+  let scaleY = vh / video.height;
+  if (hands.length > 0) {
+    for (let hand of hands) {
+      if (hand.confidence > 0.1) {
+        for (let kp of hand.keypoints) {
+          cap.noStroke();
+          cap.fill(hand.handedness === 'Left' ? color(255, 0, 255) : color(255, 255, 0));
+          cap.circle(kp.x * scaleX, kp.y * scaleY, 16);
+        }
+      }
+    }
+  }
 
   cap.canvas.toBlob(blob => {
     let url = URL.createObjectURL(blob);
@@ -153,6 +186,10 @@ function captureImage() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+}
+
+function mousePressed() {
+  console.log(hands);
 }
 
 // ── 泡泡類別 ──
@@ -185,8 +222,6 @@ class Bubble {
     g.stroke(255, 255, 255, this.alpha);
     g.strokeWeight(1.5);
     g.ellipse(this.x, this.y, this.r * 2);
-
-    // 高光
     g.stroke(255, 255, 255, this.alpha * 0.6);
     g.strokeWeight(1);
     g.arc(this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.6, this.r * 0.6, PI + QUARTER_PI, TWO_PI);
